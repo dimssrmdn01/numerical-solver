@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sympy as sp
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Numerical Methods Solver", layout="wide")
-st.title("🧮 Interactive Numerical Methods Solver")
+st.title("🧮 Interactive Numerical Methods Solver (Pure Numerical Edition)")
 st.markdown("A computational tool for iterative root-finding algorithms. Designed for academic and analytical use.")
 st.divider()
 
@@ -15,7 +14,7 @@ class NumericalSolver:
         self.equation_str = equation_str
         
     def evaluate_function(self, x_val):
-        """Evaluates the mathematical string input."""
+        """Evaluates the mathematical string input using numpy."""
         allowed_names = {k: v for k, v in np.__dict__.items() if not k.startswith("__")}
         allowed_names['x'] = x_val
         try:
@@ -23,17 +22,14 @@ class NumericalSolver:
         except Exception as e:
             raise ValueError(f"Function evaluation error: {e}")
             
-    def evaluate_derivative(self, x_val):
-        """Calculates the exact derivative f'(x) using SymPy."""
-        x_sym = sp.Symbol('x')
-        # Hapus 'np.' jika user memakainya agar SymPy tidak bingung
-        clean_eq = self.equation_str.replace('np.', '') 
+    def evaluate_derivative_numerical(self, x_val, h=1e-5):
+        """Calculates f'(x) numerically using the forward difference method."""
         try:
-            expr = sp.sympify(clean_eq)
-            deriv = sp.diff(expr, x_sym)
-            return float(deriv.subs(x_sym, x_val))
+            fx_plus_h = self.evaluate_function(x_val + h)
+            fx = self.evaluate_function(x_val)
+            return (fx_plus_h - fx) / h
         except Exception as e:
-            raise ValueError(f"Derivative calculation error: {e}")
+            raise ValueError(f"Numerical derivative error: {e}")
 
     def bisection(self, a, b, tol, max_iter):
         if self.evaluate_function(a) * self.evaluate_function(b) >= 0:
@@ -79,7 +75,7 @@ class NumericalSolver:
         x_curr = x0
         for i in range(1, int(max_iter) + 1):
             fx = self.evaluate_function(x_curr)
-            dfx = self.evaluate_derivative(x_curr)
+            dfx = self.evaluate_derivative_numerical(x_curr) # Panggilan metode numerik baru
             
             if dfx == 0:
                 return None, "Mathematical Error: Derivative is zero (division by zero)."
@@ -107,7 +103,6 @@ st.sidebar.header("Algorithm Parameters")
 method_choice = st.sidebar.selectbox("Select Numerical Method", ["Bisection Method", "Regula Falsi Method", "Newton-Raphson Method"])
 equation_input = st.sidebar.text_input("Function f(x)", value="x**3 - x - 2")
 
-# Tampilan Dinamis Berdasarkan Metode
 if method_choice == "Newton-Raphson Method":
     st.sidebar.markdown("Requires only one initial guess ($x_0$).")
     x0_input = st.sidebar.number_input("Initial Guess (x0)", value=1.5)
@@ -127,11 +122,8 @@ if st.sidebar.button("Compute Root"):
         solver = NumericalSolver(equation_input)
         st.markdown(f"**Target Function:** `f(x) = {equation_input}`")
         
-        # Ekstrak rumus turunan khusus untuk UI Newton-Raphson
         if method_choice == "Newton-Raphson Method":
-            x_sym = sp.Symbol('x')
-            deriv_expr = sp.diff(sp.sympify(equation_input.replace('np.', '')), x_sym)
-            st.markdown(f"**Calculated Derivative:** `f'(x) = {deriv_expr}`")
+            st.markdown(f"**Derivative Method:** `Approximated via Finite Differences (h = 1e-5)`")
         
         with st.spinner(f"Executing {method_choice}..."):
             if method_choice == "Bisection Method":
