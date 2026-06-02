@@ -23,11 +23,11 @@ A web-based computational tool designed to solve non-linear equations using iter
    cd numerical-solver
 
 2. Install the required dependencies:
-   Bash:
+   ```bash
    pip install -r requirements.txt
 
 4. Run the Streamlit application:
-   Bash:
+   ```bash
    streamlit run numerical_solver.py
 
 
