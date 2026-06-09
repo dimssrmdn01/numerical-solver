@@ -1,151 +1,224 @@
-import streamlit as st
-import pandas as pd
+import time
+import sqlite3
 import numpy as np
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+from typing import Tuple, Optional, Callable
 
-# --- PAGE CONFIGURATION ---
+# Konfigurasi Halaman Dasar
 st.set_page_config(page_title="Numerical Methods Solver", layout="wide")
-st.title("🧮 Interactive Numerical Methods Solver (Pure Numerical Edition)")
-st.markdown("A computational tool for iterative root-finding algorithms. Designed for academic and analytical use.")
-st.divider()
 
-# --- MATHEMATICAL ENGINE ---
-class NumericalSolver:
-    def __init__(self, equation_str):
-        self.equation_str = equation_str
-        
-    def evaluate_function(self, x_val):
-        """Evaluates the mathematical string input using numpy."""
+class DatabaseManager:
+    """Mengelola operasi penyimpanan log komputasi ke dalam SQLite database."""
+    
+    def __init__(self, db_name: str = "solver_audit.db"):
+        self.db_name = db_name
+
+    def init_db(self) -> None:
+        """Inisialisasi tabel histori komputasi jika belum ada."""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS computation_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                method TEXT,
+                function_str TEXT,
+                root_found REAL,
+                iterations INTEGER,
+                execution_time_ms REAL,
+                tolerance REAL
+            )
+        ''')
+        conn.commit()
+        conn.close()
+
+    def log_computation(self, method: str, func_str: str, root: float, iters: int, exec_time: float, tol: float) -> None:
+        """Merekam hasil pencarian akar persamaan beserta metrik performanya."""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        timestamp = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute('''
+            INSERT INTO computation_logs (timestamp, method, function_str, root_found, iterations, execution_time_ms, tolerance)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (timestamp, method, func_str, float(root), int(iters), float(exec_time), float(tol)))
+        conn.commit()
+        conn.close()
+
+    def fetch_logs(self, limit: int = 5) -> pd.DataFrame:
+        """Mengambil data log histori komputasi terbaru."""
+        conn = sqlite3.connect(self.db_name)
+        query = f"SELECT * FROM computation_logs ORDER BY id DESC LIMIT {limit}"
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        return df
+
+
+class NumericalEngine:
+    """Mesin komputasi berorientasi objek untuk metode numerik."""
+    
+    @staticmethod
+    def _evaluate_function(func_str: str, x_val: float) -> float:
+        """Evaluasi string fungsi matematika secara aman menggunakan namespace NumPy."""
         allowed_names = {k: v for k, v in np.__dict__.items() if not k.startswith("__")}
         allowed_names['x'] = x_val
         try:
-            return eval(self.equation_str, {"__builtins__": {}}, allowed_names)
+            return eval(func_str, {"__builtins__": {}}, allowed_names)
         except Exception as e:
-            raise ValueError(f"Function evaluation error: {e}")
-            
-    def evaluate_derivative_numerical(self, x_val, h=1e-5):
-        """Calculates f'(x) numerically using the forward difference method."""
-        try:
-            fx_plus_h = self.evaluate_function(x_val + h)
-            fx = self.evaluate_function(x_val)
-            return (fx_plus_h - fx) / h
-        except Exception as e:
-            raise ValueError(f"Numerical derivative error: {e}")
+            raise ValueError(f"Fungsi tidak valid atau tidak dapat dievaluasi: {e}")
 
-    def bisection(self, a, b, tol, max_iter):
-        if self.evaluate_function(a) * self.evaluate_function(b) >= 0:
-            return None, "Initial Condition Error: f(a) and f(b) must have opposite signs."
+    @classmethod
+    def bisection(cls, func_str: str, a: float, b: float, tol: float, max_iter: int) -> Tuple[Optional[float], pd.DataFrame, float]:
+        """Implementasi Metode Biseksi dengan pelacakan riwayat iterasi."""
+        start_time = time.perf_counter()
         
-        data = []
-        for i in range(1, int(max_iter) + 1):
-            c = (a + b) / 2.0
-            fa = self.evaluate_function(a)
-            fc = self.evaluate_function(c)
-            error = abs(b - a)
-            
-            data.append({"Iteration": i, "a": a, "b": b, "c (Midpoint)": c, "f(a)": fa, "f(c)": fc, "Error": error})
-            
-            if abs(fc) < tol or error < tol: break
-            if fa * fc < 0: b = c 
-            else: a = c 
-        return pd.DataFrame(data), None, "c (Midpoint)"
-
-    def regula_falsi(self, a, b, tol, max_iter):
-        if self.evaluate_function(a) * self.evaluate_function(b) >= 0:
-            return None, "Initial Condition Error: f(a) and f(b) must have opposite signs."
+        fa = cls._evaluate_function(func_str, a)
+        fb = cls._evaluate_function(func_str, b)
         
-        data = []
-        for i in range(1, int(max_iter) + 1):
-            fa = self.evaluate_function(a)
-            fb = self.evaluate_function(b)
-            if fb - fa == 0: return None, "Division by zero."
+        if fa * fb >= 0:
+            raise ValueError("Syarat awal gagal: f(a) dan f(b) harus memiliki tanda yang berlawanan.")
             
-            c = (a * fb - b * fa) / (fb - fa)
-            fc = self.evaluate_function(c)
-            error = abs(fc)
+        history = []
+        root = a
+        
+        for i in range(max_iter):
+            root = (a + b) / 2.0
+            f_root = cls._evaluate_function(func_str, root)
+            error = abs(f_root)
             
-            data.append({"Iteration": i, "a": a, "b": b, "c (Root Estimate)": c, "f(a)": fa, "f(b)": fb, "f(c)": fc, "Error": error})
-            
-            if abs(fc) < tol: break
-            if fa * fc < 0: b = c 
-            else: a = c 
-        return pd.DataFrame(data), None, "c (Root Estimate)"
-
-    def newton_raphson(self, x0, tol, max_iter):
-        data = []
-        x_curr = x0
-        for i in range(1, int(max_iter) + 1):
-            fx = self.evaluate_function(x_curr)
-            dfx = self.evaluate_derivative_numerical(x_curr) # Panggilan metode numerik baru
-            
-            if dfx == 0:
-                return None, "Mathematical Error: Derivative is zero (division by zero)."
-                
-            x_next = x_curr - (fx / dfx)
-            error = abs(x_next - x_curr)
-            
-            data.append({
-                "Iteration": i, 
-                "x_i": x_curr, 
-                "f(x_i)": fx, 
-                "f'(x_i)": dfx, 
-                "x_{i+1}": x_next, 
-                "Error": error
+            history.append({
+                'Iteration': i + 1,
+                'a': a,
+                'b': b,
+                'Root (x)': root,
+                'f(x)': f_root,
+                'Error': error
             })
             
-            if error < tol or abs(self.evaluate_function(x_next)) < tol:
+            if error < tol:
                 break
-            x_curr = x_next
+                
+            if cls._evaluate_function(func_str, a) * f_root < 0:
+                b = root
+            else:
+                a = root
+                
+        exec_time = (time.perf_counter() - start_time) * 1000
+        return root, pd.DataFrame(history), exec_time
+
+    @classmethod
+    def regula_falsi(cls, func_str: str, a: float, b: float, tol: float, max_iter: int) -> Tuple[Optional[float], pd.DataFrame, float]:
+        """Implementasi Metode Regula Falsi dengan pelacakan riwayat iterasi."""
+        start_time = time.perf_counter()
+        
+        fa = cls._evaluate_function(func_str, a)
+        fb = cls._evaluate_function(func_str, b)
+        
+        if fa * fb >= 0:
+            raise ValueError("Syarat awal gagal: f(a) dan f(b) harus memiliki tanda yang berlawanan.")
             
-        return pd.DataFrame(data), None, "x_{i+1}"
+        history = []
+        root = a
+        
+        for i in range(max_iter):
+            fa = cls._evaluate_function(func_str, a)
+            fb = cls._evaluate_function(func_str, b)
+            
+            root = b - (fb * (b - a)) / (fb - fa)
+            f_root = cls._evaluate_function(func_str, root)
+            error = abs(f_root)
+            
+            history.append({
+                'Iteration': i + 1,
+                'a': a,
+                'b': b,
+                'Root (x)': root,
+                'f(x)': f_root,
+                'Error': error
+            })
+            
+            if error < tol:
+                break
+                
+            if fa * f_root < 0:
+                b = root
+            else:
+                a = root
+                
+        exec_time = (time.perf_counter() - start_time) * 1000
+        return root, pd.DataFrame(history), exec_time
 
-# --- SIDEBAR: PARAMETER CONFIGURATION ---
-st.sidebar.header("Algorithm Parameters")
-method_choice = st.sidebar.selectbox("Select Numerical Method", ["Bisection Method", "Regula Falsi Method", "Newton-Raphson Method"])
-equation_input = st.sidebar.text_input("Function f(x)", value="x**3 - x - 2")
+# Inisialisasi Database
+db = DatabaseManager()
+db.init_db()
 
-if method_choice == "Newton-Raphson Method":
-    st.sidebar.markdown("Requires only one initial guess ($x_0$).")
-    x0_input = st.sidebar.number_input("Initial Guess (x0)", value=1.5)
-else:
-    st.sidebar.markdown("Requires an interval $[a, b]$ where signs change.")
-    col_param1, col_param2 = st.sidebar.columns(2)
-    a_input = col_param1.number_input("Lower Bound (a)", value=1.0)
-    b_input = col_param2.number_input("Upper Bound (b)", value=2.0)
+# Antarmuka Pengguna Streamlit
+st.title("Interactive Numerical Methods Solver")
+st.markdown("Mesin komputasi web untuk mencari akar persamaan non-linear menggunakan algoritma pencarian iteratif, dilengkapi dengan benchmarking performa dan pencatatan metrik operasional.")
+st.write("---")
 
-col_param3, col_param4 = st.sidebar.columns(2)
-tol_input = col_param3.number_input("Tolerance", value=0.001, format="%.5f")
-max_iter_input = col_param4.number_input("Max Iterations", value=50, step=1)
+col_input, col_config = st.columns(2)
 
-# --- EXECUTION & UI RENDERING ---
-if st.sidebar.button("Compute Root"):
+with col_input:
+    st.subheader("Fungsi & Batasan")
+    func_input = st.text_input("Masukkan Fungsi $f(x)$ (Gunakan sintaksis Python/NumPy, contoh: x**3 - x - 2)", value="x**3 - x - 2")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        a_val = st.number_input("Batas Bawah (a)", value=1.0, format="%.4f")
+    with col_b:
+        b_val = st.number_input("Batas Atas (b)", value=2.0, format="%.4f")
+
+with col_config:
+    st.subheader("Konfigurasi Mesin")
+    method_select = st.selectbox("Algoritma Pencarian", ["Regula Falsi", "Bisection"])
+    tolerance = st.number_input("Batas Toleransi Eror", value=1e-6, format="%.8f")
+    max_iterations = st.number_input("Maksimum Iterasi", min_value=1, max_value=1000, value=100)
+
+if st.button("Jalankan Komputasi Numerik", type="primary"):
     try:
-        solver = NumericalSolver(equation_input)
-        st.markdown(f"**Target Function:** `f(x) = {equation_input}`")
+        engine = NumericalEngine()
         
-        if method_choice == "Newton-Raphson Method":
-            st.markdown(f"**Derivative Method:** `Approximated via Finite Differences (h = 1e-5)`")
-        
-        with st.spinner(f"Executing {method_choice}..."):
-            if method_choice == "Bisection Method":
-                df_result, error_msg, root_col = solver.bisection(a_input, b_input, tol_input, max_iter_input)
-            elif method_choice == "Regula Falsi Method":
-                df_result, error_msg, root_col = solver.regula_falsi(a_input, b_input, tol_input, max_iter_input)
-            else:
-                df_result, error_msg, root_col = solver.newton_raphson(x0_input, tol_input, max_iter_input)
+        if method_select == "Bisection":
+            final_root, df_history, time_ms = engine.bisection(func_input, a_val, b_val, tolerance, max_iterations)
+        else:
+            final_root, df_history, time_ms = engine.regula_falsi(func_input, a_val, b_val, tolerance, max_iterations)
             
-            if error_msg:
-                st.error(error_msg)
-            else:
-                final_root = df_result[root_col].iloc[-1]
-                total_iterations = len(df_result)
-                
-                st.success(f"Convergence achieved at iteration {total_iterations}. Estimated Root (x): **{final_root:.6f}**")
-                
-                st.subheader("Iteration History Matrix")
-                st.dataframe(df_result, use_container_width=True)
-                
-                st.subheader("Error Convergence Profile")
-                st.line_chart(df_result.set_index("Iteration")["Error"])
-                
+        total_iters = len(df_history)
+        
+        # Eksekusi logging ke database SQLite
+        db.log_computation(method_select, func_input, final_root, total_iters, time_ms, tolerance)
+        
+        st.success(f"Komputasi berhasil diselesaikan dalam {time_ms:.4f} ms.")
+        
+        # Panel Metrik Utama
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Akar Ditemukan (x)", f"{final_root:.6f}")
+        m2.metric("Total Siklus Iterasi", f"{total_iters}")
+        m3.metric("Waktu Eksekusi", f"{time_ms:.4f} ms")
+        
+        st.write("---")
+        
+        col_chart, col_table = st.columns([1.2, 1])
+        
+        with col_chart:
+            st.markdown("### Profil Konvergensi Eror")
+            fig = px.line(df_history, x='Iteration', y='Error', markers=True, 
+                          title=f"Laju Penurunan Eror Logaritmik - {method_select}",
+                          log_y=True)
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_table:
+            st.markdown("### Matriks Histori Iterasi")
+            st.dataframe(df_history, use_container_width=True, hide_index=True)
+
     except Exception as e:
-        st.error(f"Syntax or Execution Error: {e}")
+        st.error(f"Terjadi kesalahan komputasi: {e}")
+
+st.write("---")
+st.markdown("### Audit Log Histori Komputasi (Database Internal)")
+df_logs = db.fetch_logs(limit=5)
+if not df_logs.empty:
+    st.dataframe(df_logs, use_container_width=True, hide_index=True)
+else:
+    st.info("Log database belum tersedia. Lakukan komputasi pertama Anda.")
