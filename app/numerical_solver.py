@@ -6,7 +6,7 @@ import streamlit as st
 import plotly.express as px
 from typing import Tuple, Optional, Callable
 
-# Konfigurasi Halaman Dasar
+#Konfigurasi Halaman Dasar
 st.set_page_config(page_title="Numerical Methods Solver", layout="wide")
 
 class DatabaseManager:
@@ -149,11 +149,11 @@ class NumericalEngine:
         exec_time = (time.perf_counter() - start_time) * 1000
         return root, pd.DataFrame(history), exec_time
 
-# Inisialisasi Database
+#Inisialisasi Database
 db = DatabaseManager()
 db.init_db()
 
-# Antarmuka Pengguna Streamlit
+#Antarmuka Pengguna Streamlit
 st.title("Interactive Numerical Methods Solver")
 st.markdown("Mesin komputasi web untuk mencari akar persamaan non-linear menggunakan algoritma pencarian iteratif, dilengkapi dengan benchmarking performa dan pencatatan metrik operasional.")
 st.write("---")
@@ -186,12 +186,12 @@ if st.button("Jalankan Komputasi Numerik", type="primary"):
             
         total_iters = len(df_history)
         
-        # Eksekusi logging ke database SQLite
+        #Eksekusi logging ke database SQLite
         db.log_computation(method_select, func_input, final_root, total_iters, time_ms, tolerance)
         
         st.success(f"Komputasi berhasil diselesaikan dalam {time_ms:.4f} ms.")
         
-        # Panel Metrik Utama
+        #Panel Metrik Utama
         m1, m2, m3 = st.columns(3)
         m1.metric("Akar Ditemukan (x)", f"{final_root:.6f}")
         m2.metric("Total Siklus Iterasi", f"{total_iters}")
