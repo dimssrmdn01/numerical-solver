@@ -7,8 +7,6 @@
 
 A web-based computational tool designed to solve non-linear equations using iterative numerical algorithms. This application provides step-by-step iteration matrices and error convergence visualizations, making it an excellent companion for academic learning and mathematical analysis.
 
-🔗 **[Live Demo: Numerical Solver App](https://numerical-solver.streamlit.app/)**
-
 ##  Features
 * **Multiple Algorithms**: Currently supports **Bisection Method** and **Regula Falsi (False Position) Method**.
 * **Dynamic Function Parser**: Input complex mathematical functions securely using standard Python/NumPy syntax (e.g., `x**3 - x - 2` or `np.sin(x)`).
